@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmic Canvas - ASCII Art Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background-color: #f0f0f0;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #2a2a72; /* Cosmic blue */
+            margin-bottom: 0;
+        }
+        p {
+            max-width: 600px;
+            text-align: center;
+            color: #555;
+            margin-bottom: 20px;
+        }
+        .controls {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px; /* Spacing between controls */
+        }
+        input[type="file"] {
+            border: 1px solid #ccc;
+            display: inline-block;
+            padding: 6px 12px;
+            cursor: pointer;
+            background-color: #eee;
+            border-radius: 4px;
+        }
+        label {
+             font-weight: bold;
+             margin-right: 5px;
+        }
+        input[type="number"] {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+         button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #outputAscii {
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre;
+            line-height: 0.8; /* Adjust for density */
+            font-size: 8px;    /* Adjust for density */
+            overflow: auto; /* Enable scrolling if needed */
+            background-color: #1e1e1e; /* Dark background */
+            color: #d4d4d4; /* Light text */
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #444;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin-top: 20px;
+        }
+        #processingStatus {
+            margin-top: 15px;
+            font-style: italic;
+            color: #007bff;
+        }
+        /* Hide the canvas used for processing */
+        #processingCanvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>✨ Cosmic Canvas ✨</h1>
+    <p>Upload an image file (JPG, PNG, GIF) and watch it transform into ASCII art!</p>
+
+    <div class="controls">
+        <label for="imageFile">Select an Image:</label>
+        <input type="file" id="imageFile" accept="image/*">
+
+        <div>
+             <label for="asciiWidth">ASCII Width (chars):</label>
+             <input type="number" id="asciiWidth" value="100" min="20" max="400">
+        </div>
+
+        <div>
+             <label for="charSet">Character Set:</label>
+             <select id="charSet">
+                 <option value="dense">Dense (@%#*+=-:. )</option>
+                 <option value="simple">Simple (#=-. )</option>
+                 <option value="blocks">Blocks (█▓▒░ )</option>
+                 <option value="binary">Binary (10)</option>
+                 <option value="invertedDense">Inverted Dense ( .:-=+*#%@)</option>
+             </select>
+        </div>
+         <button id="generateButton" disabled>Generate ASCII</button>
+         <div id="processingStatus"></div>
+    </div>
+
+
+    <pre id="outputAscii">Your ASCII art will appear here...</pre>
+
+    <canvas id="processingCanvas"></canvas>
+
+    <script>
+        const fileInput = document.getElementById('imageFile');
+        const asciiOutput = document.getElementById('outputAscii');
+        const canvas = document.getElementById('processingCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true }); // Optimization hint
+        const asciiWidthInput = document.getElementById('asciiWidth');
+        const charSetSelect = document.getElementById('charSet');
+        const generateButton = document.getElementById('generateButton');
+        const statusDiv = document.getElementById('processingStatus');
+
+        let imageDataUrl = null; // Store image data URL to regenerate
+
+        // --- Character Ramps ---
+        // Define different sets of characters, ordered from darkest/densest to lightest/sparsest
+        const CHAR_RAMPS = {
+             dense: "@%#*+=-:. ", // Good general purpose
+             simple: "#=-. ",     // Very basic
+             blocks: "█▓▒░ ",     // Block characters
+             binary: "10",        // Simple binary
+             invertedDense: " .:-=+*#%@" // Light background friendly
+        };
+
+        fileInput.addEventListener('change', handleFileSelect);
+        generateButton.addEventListener('click', generateAscii);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file || !file.type.startsWith('image/')) {
+                statusDiv.textContent = 'Please select a valid image file.';
+                generateButton.disabled = true;
+                imageDataUrl = null;
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                 imageDataUrl = e.target.result; // Store the data URL
+                 generateButton.disabled = false; // Enable button now
+                 statusDiv.textContent = 'Image loaded. Click Generate!';
+                 asciiOutput.textContent = 'Ready to generate...'; // Clear previous output
+            }
+            reader.onerror = function() {
+                 statusDiv.textContent = 'Error reading file.';
+                 console.error("FileReader error:", reader.error);
+                 generateButton.disabled = true;
+                 imageDataUrl = null;
+            }
+            reader.readAsDataURL(file); // Read the file
+        }
+
+
+        function generateAscii() {
+            if (!imageDataUrl) {
+                statusDiv.textContent = 'No image loaded!';
+                return;
+            }
+
+             // Disable button during processing
+            generateButton.disabled = true;
+            generateButton.textContent = 'Generating...';
+            statusDiv.textContent = 'Processing image...';
+            asciiOutput.textContent = 'Calculating...'; // Placeholder
+
+
+            const img = new Image();
+            img.onload = () => {
+                 try {
+                     const selectedRamp = CHAR_RAMPS[charSetSelect.value] || CHAR_RAMPS.dense;
+                     const desiredWidth = parseInt(asciiWidthInput.value) || 100;
+                     const asciiArt = imageToAscii(img, desiredWidth, selectedRamp);
+                     asciiOutput.textContent = asciiArt; // Display result
+                     statusDiv.textContent = 'Generation complete!';
+                 } catch (error) {
+                      console.error("Error during ASCII generation:", error);
+                      statusDiv.textContent = `Error: ${error.message}`;
+                      asciiOutput.textContent = 'An error occurred during generation.';
+                 } finally {
+                     // Re-enable button after processing (success or error)
+                     generateButton.disabled = false;
+                     generateButton.textContent = 'Generate ASCII';
+                 }
+
+            };
+             img.onerror = () => {
+                 console.error("Image loading error.");
+                 statusDiv.textContent = 'Error loading image data for processing.';
+                 asciiOutput.textContent = 'Could not process the loaded image.';
+                 generateButton.disabled = false; // Re-enable even on error
+                 generateButton.textContent = 'Generate ASCII';
+             };
+            img.src = imageDataUrl; // Trigger image load
+        }
+
+
+        function imageToAscii(img, width, charRamp) {
+            // Calculate dimensions based on desired width, maintaining aspect ratio
+            const aspectRatio = img.height / img.width;
+            const height = Math.round(width * aspectRatio * 0.5); // Adjust height for character aspect ratio (chars are taller than wide)
+
+            // Resize canvas to target dimensions
+            canvas.width = width;
+            canvas.height = height;
+
+             // Disable image smoothing for sharper pixel mapping
+             ctx.imageSmoothingEnabled = false;
+
+            // Draw the image onto the canvas (scaled)
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Get pixel data from the canvas
+            // Catch potential security errors if image is cross-origin and server doesn't allow
+            let imageData;
+            try {
+                imageData = ctx.getImageData(0, 0, width, height);
+            } catch (e) {
+                console.error("Error getting ImageData:", e);
+                 throw new Error("Could not get image data. Image might be cross-origin restricted or tainted.");
+            }
+
+            const data = imageData.data; // Pixel data array (R, G, B, A, R, G, B, A, ...)
+            let asciiStr = '';
+
+            // Iterate over pixels (row by row, column by column)
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const index = (y * width + x) * 4; // Calculate index in the flat data array
+                    const r = data[index];
+                    const g = data[index + 1];
+                    const b = data[index + 2];
+                    // const a = data[index + 3]; // Alpha - we mostly ignore it here
+
+                    // Calculate grayscale brightness (simple average)
+                    const brightness = (r + g + b) / 3; // Value from 0 (black) to 255 (white)
+
+                    // Map brightness to a character in the ramp
+                    // Clamp brightness to ensure it's within 0-255
+                    const clampedBrightness = Math.min(255, Math.max(0, brightness));
+                     // Normalize brightness to 0-1 and scale to ramp length
+                     const rampIndex = Math.min(
+                          charRamp.length - 1, // Prevent going out of bounds
+                          Math.floor((clampedBrightness / 255) * charRamp.length)
+                     );
+
+                    asciiStr += charRamp[rampIndex]; // Append the chosen character
+                }
+                asciiStr += '\n'; // Add a newline character at the end of each row
+            }
+
+            return asciiStr;
+        }
+
+    </script>
+
+</body>
+</html>
