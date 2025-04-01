@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Asciifyer</title>
+    <!-- Using Asciifyer based on previous chat -->
+    <title>Asciifyer - ASCII Art Generator</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -60,36 +61,33 @@
         button:hover:not(:disabled) { filter: brightness(90%); }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* Style the image display area */
-        #displayContainer {
-            margin-top: 20px;
+        /* Style the <pre> tag for crisp ASCII text display */
+        #outputAscii {
+            font-family: "Courier New", Courier, monospace; /* CRITICAL: Monospace font */
+            white-space: pre;           /* Respect whitespace and newlines */
+            line-height: 1.0;           /* Natural line height for the font */
+            font-size: 10px;            /* Adjust base size as needed */
+            overflow: auto;             /* Scrollbars if needed */
+            background-color: #1e1e1e;  /* Dark background */
+            color: #d4d4d4;            /* Light text */
+            padding: 15px;              /* Padding inside the box */
+            border-radius: 5px;
+            border: 1px solid #444;
             max-width: 100%;
             box-sizing: border-box;
-            background-color: #1e1e1e; /* Background for the container */
-            border: 1px solid #444;
-            border-radius: 5px;
-            padding: 15px; /* Padding around the image */
-            display: flex; /* Center the image if needed */
-            justify-content: center;
-            align-items: center;
+            margin-top: 20px;
+             /* Try to force sharp rendering (browser support varies) */
+             image-rendering: pixelated;
+             image-rendering: -moz-crisp-edges;
+             image-rendering: crisp-edges;
+             font-smooth: never;
+             -webkit-font-smoothing: none;
              min-height: 100px; /* Placeholder size */
         }
-        #outputImage {
-            display: block; /* Remove extra space below image */
-            max-width: 100%;
-            height: auto; /* Maintain aspect ratio */
-            image-rendering: pixelated; /* Sharp pixels for blocky look */
-            image-rendering: -moz-crisp-edges;
-            image-rendering: crisp-edges;
-            background-color: #1e1e1e; /* Match container in case image loads slow */
-             color: #d4d4d4; /* Fallback text color */
-        }
-         #outputImage:not([src]) { /* Style placeholder before image loads */
-             content: 'Your ASCII art will appear here...';
-             font-family: 'Courier New', Courier, monospace;
-             font-size: 12px;
-             text-align: center;
-             padding: 20px;
+         #outputAscii:empty::before { /* Placeholder text when empty */
+            content: 'Your ASCII art will appear here...';
+             color: #888; /* Dimmer color for placeholder */
+             font-style: italic;
         }
 
 
@@ -99,34 +97,34 @@
             color: #007bff;
             min-height: 1.2em;
         }
-        /* Only one canvas needed now */
-        #renderCanvas {
+        /* We need two canvases again: one for processing, one for saving */
+        #processingCanvas, #saveCanvas {
             display: none;
         }
     </style>
 </head>
 <body>
 
-    <h1>✨ Asciifyer ✨</h1>
-    <p>Upload an image file, convert it to ASCII, and see/save the identical result as a PNG!</p>
+    <h1>Asciifyer ✨</h1> <!-- Changed name -->
+    <p>Upload an image, see it as real ASCII text, and save a matching crisp PNG!</p>
 
     <div class="controls">
         <label for="imageFile">Select an Image:</label>
         <input type="file" id="imageFile" accept="image/*">
         <div>
              <label for="asciiWidth">ASCII Width (chars):</label>
-             <input type="number" id="asciiWidth" value="100" min="20" max="400">
+             <input type="number" id="asciiWidth" value="200" min="20" max="400">
         </div>
         <div>
-             <label for="charSet">Character Set:</label>
-             <select id="charSet">
-                 <option value="dense">Dense (@%#*+=-:. )</option>
-                 <option value="simple">Simple (#=-. )</option>
-                 <option value="blocks">Blocks (█▓▒░ )</option>
-                 <option value="binary">Binary (10)</option>
-                 <option value="invertedDense">Inverted Dense ( .:-=+*#%@)</option>
-             </select>
-        </div>
+            <label for="charSet">Character Set:</label>
+            <select id="charSet">
+                <option value="dense">Dense (@%#*+=-:. )</option>
+                <option value="simple">Simple (#=-. )</option>
+                <option value="blocks">Blocks (█▓▒░ )</option>
+                <option value="binary">Binary (10)</option>
+                <option value="invertedDense" selected>Inverted Dense ( .:-=+*#%@)</option>
+            </select>
+       </div>
         <div class="button-group">
              <button id="generateButton" disabled>Generate ASCII</button>
              <button id="saveButton" disabled>Save as PNG</button>
@@ -134,40 +132,30 @@
          <div id="processingStatus"></div>
     </div>
 
-    <!-- Container for the output image -->
-    <div id="displayContainer">
-        <img id="outputImage" alt="Generated ASCII Art">
-         <!-- No <pre> tag anymore -->
-    </div>
+    <!-- Back to using <pre> for display -->
+    <pre id="outputAscii"></pre>
 
-    <!-- Single hidden Canvas for processing AND rendering the final text image -->
-    <canvas id="renderCanvas"></canvas>
+    <!-- Hidden Canvases: one for image processing, one for saving the text render -->
+    <canvas id="processingCanvas"></canvas>
+    <canvas id="saveCanvas"></canvas>
 
     <script>
         // --- DOM Elements ---
         const fileInput = document.getElementById('imageFile');
-        const outputImage = document.getElementById('outputImage'); // Target the <img> tag
-        const renderCanvas = document.getElementById('renderCanvas'); // Single canvas
-        const renderCtx = renderCanvas.getContext('2d', { willReadFrequently: true }); // Add willReadFrequently here too
+        const asciiOutputPre = document.getElementById('outputAscii'); // Target the <pre> tag
+        const processingCanvas = document.getElementById('processingCanvas');
+        const processingCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
+        const saveCanvas = document.getElementById('saveCanvas'); // Dedicated canvas for saving
+        const saveCtx = saveCanvas.getContext('2d');
         const asciiWidthInput = document.getElementById('asciiWidth');
         const charSetSelect = document.getElementById('charSet');
         const generateButton = document.getElementById('generateButton');
         const saveButton = document.getElementById('saveButton');
         const statusDiv = document.getElementById('processingStatus');
-        const displayContainer = document.getElementById('displayContainer');
 
         // --- State ---
         let imageDataUrl = null;
-        let renderedAsciiDataUrl = null; // Store the Data URL of the rendered canvas
-
-        // --- Configuration ---
-        // Define explicit font settings for canvas rendering consistency
-        const RENDER_FONT_FAMILY = '"Courier New", Courier, monospace';
-        const RENDER_FONT_SIZE_PX = 10; // Pixel size for rendering text on canvas
-        const RENDER_LINE_HEIGHT_FACTOR = 1.1; // Multiplier for line spacing on canvas (adjust for looks)
-        const RENDER_BACKGROUND_COLOR = '#1e1e1e'; // Match desired background
-        const RENDER_TEXT_COLOR = '#d4d4d4';      // Match desired text color
-        const RENDER_PADDING_PX = 5; // Optional padding around text in the final image
+        let currentAsciiArtString = ''; // Store the raw text string
 
         // --- Character Ramps ---
         const CHAR_RAMPS = {
@@ -178,36 +166,33 @@
         // --- Event Listeners ---
         fileInput.addEventListener('change', handleFileSelect);
         generateButton.addEventListener('click', generateAndDisplayAscii);
-        saveButton.addEventListener('click', saveAsciiAsImage);
+        saveButton.addEventListener('click', saveAsciiAsCrispImage); // Renamed save function
 
         // --- Functions ---
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file || !file.type.startsWith('image/')) {
                 statusDiv.textContent = 'Please select a valid image file.';
-                generateButton.disabled = true;
-                saveButton.disabled = true;
-                imageDataUrl = null;
-                renderedAsciiDataUrl = null;
-                outputImage.removeAttribute('src'); // Clear previous image
+                generateButton.disabled = true; saveButton.disabled = true;
+                imageDataUrl = null; currentAsciiArtString = '';
+                asciiOutputPre.textContent = ''; // Clear <pre>
                 return;
             }
 
             const reader = new FileReader();
             reader.onload = function(e) {
                  imageDataUrl = e.target.result;
-                 generateButton.disabled = false;
-                 saveButton.disabled = true;
+                 generateButton.disabled = false; saveButton.disabled = true;
                  statusDiv.textContent = 'Image loaded. Click Generate!';
-                 outputImage.removeAttribute('src');
-                 renderedAsciiDataUrl = null;
+                 asciiOutputPre.textContent = ''; // Clear <pre>
+                 currentAsciiArtString = '';
             }
             reader.onerror = function() {
                  statusDiv.textContent = 'Error reading file.';
                  console.error("FileReader error:", reader.error);
                  generateButton.disabled = true; saveButton.disabled = true;
-                 imageDataUrl = null; renderedAsciiDataUrl = null;
-                 outputImage.removeAttribute('src');
+                 imageDataUrl = null; currentAsciiArtString = '';
+                 asciiOutputPre.textContent = ''; // Clear <pre>
             }
             reader.readAsDataURL(file);
         }
@@ -221,9 +206,8 @@
             generateButton.disabled = true; saveButton.disabled = true;
             generateButton.textContent = 'Generating...';
             statusDiv.textContent = 'Processing image...';
-            outputImage.removeAttribute('src'); // Clear previous image while processing
-            renderedAsciiDataUrl = null;
-
+            asciiOutputPre.textContent = 'Calculating...'; // Show progress in <pre>
+            currentAsciiArtString = '';
 
             const img = new Image();
             img.onload = () => {
@@ -234,20 +218,20 @@
                      // 1. Generate the raw ASCII text string
                      const asciiArtString = imageToAscii(img, desiredWidth, selectedRamp);
 
-                     // 2. Render this string to the hidden canvas
-                     renderedAsciiDataUrl = renderAsciiToCanvas(asciiArtString, renderCanvas);
+                     // 2. Store the string
+                     currentAsciiArtString = asciiArtString;
 
-                     // 3. Display the canvas content in the <img> tag
-                     outputImage.src = renderedAsciiDataUrl;
+                     // 3. Display the raw text in the <pre> tag
+                     asciiOutputPre.textContent = currentAsciiArtString;
 
                      statusDiv.textContent = 'Generation complete!';
                      saveButton.disabled = false; // Enable save button
 
                  } catch (error) {
-                      console.error("Error during ASCII generation/rendering:", error);
+                      console.error("Error during ASCII generation:", error);
                       statusDiv.textContent = `Error: ${error.message}`;
-                      outputImage.removeAttribute('src');
-                      renderedAsciiDataUrl = null;
+                      asciiOutputPre.textContent = `Error: ${error.message}`; // Show error in <pre>
+                      currentAsciiArtString = '';
                       saveButton.disabled = true;
                  } finally {
                      generateButton.disabled = false; // Re-enable generate button
@@ -257,33 +241,33 @@
              img.onerror = () => {
                  console.error("Image loading error.");
                  statusDiv.textContent = 'Error loading image data for processing.';
-                 outputImage.removeAttribute('src');
+                 asciiOutputPre.textContent = 'Error loading image.'; // Show error in <pre>
                  generateButton.disabled = false; saveButton.disabled = true;
-                 renderedAsciiDataUrl = null;
+                 currentAsciiArtString = '';
              };
             img.src = imageDataUrl;
         }
 
         function imageToAscii(img, width, charRamp) {
-            // Use renderCanvas temporarily for image processing
+            // Use processingCanvas for getting image data
             const aspectRatio = img.height / img.width;
-            // Factor used here determines how many PIXELS map to one CHARACTER vertically
-            const characterHeightFactor = 0.55; // Adjust as before for aspect ratio correction
+            // Adjust for character aspect ratio - this controls the character grid proportions
+            const characterHeightFactor = 0.55;
             const height = Math.round(width * aspectRatio * characterHeightFactor);
 
-            renderCanvas.width = width; // Canvas width = characters wide
-            renderCanvas.height = height;// Canvas height = characters high
-            renderCtx.imageSmoothingEnabled = false;
-            renderCtx.clearRect(0, 0, width, height); // Clear before drawing
-            renderCtx.drawImage(img, 0, 0, width, height);
+            processingCanvas.width = width;
+            processingCanvas.height = height;
+            processingCtx.imageSmoothingEnabled = false;
+            processingCtx.clearRect(0, 0, width, height);
+            processingCtx.drawImage(img, 0, 0, width, height);
 
             let imageData;
             try {
-                imageData = renderCtx.getImageData(0, 0, width, height);
+                imageData = processingCtx.getImageData(0, 0, width, height);
             } catch (e) {
                  throw new Error("Could not get image data (check cross-origin issues).");
             }
-            renderCtx.clearRect(0, 0, width, height); // Clear canvas after reading data
+            processingCtx.clearRect(0, 0, width, height); // Clear after use
 
             const data = imageData.data;
             let asciiStr = '';
@@ -300,24 +284,33 @@
                     );
                     asciiStr += charRamp[rampIndex];
                 }
-                asciiStr += '\n'; // Keep the newline for parsing later
+                asciiStr += '\n';
             }
-            return asciiStr.endsWith('\n') ? asciiStr.slice(0, -1) : asciiStr; // Trim trailing newline
+            return asciiStr.endsWith('\n') ? asciiStr.slice(0, -1) : asciiStr;
         }
 
-
-        function renderAsciiToCanvas(asciiString, targetCanvas) {
-             const ctx = targetCanvas.getContext('2d');
+        // Renders the text to the saveCanvas with sharp edges
+        function renderAsciiToSaveCanvas(asciiString, targetCanvasContext) {
+            const ctx = targetCanvasContext;
              const lines = asciiString.split('\n');
              if (lines.length === 0 || lines[0].length === 0) {
                   throw new Error("Cannot render empty ASCII string.");
              }
 
-             // --- Calculate Text Metrics ---
-             ctx.font = `${RENDER_FONT_SIZE_PX}px ${RENDER_FONT_FAMILY}`;
-             ctx.textBaseline = 'top'; // Crucial for predictable Y positioning
+             // --- Get Styling from <pre> Element (for consistency) ---
+             const computedStyle = window.getComputedStyle(asciiOutputPre);
+             const fontFamily = computedStyle.fontFamily || '"Courier New", monospace';
+             const fontSize = parseInt(computedStyle.fontSize) || 10; // Use font size from CSS
+             const backgroundColor = computedStyle.backgroundColor || '#1e1e1e';
+             const textColor = computedStyle.color || '#d4d4d4';
+             // Estimate line height based on font size (adjust factor if needed)
+             const lineHeightFactor = 1.1; // Might need tweaking (1.0 to 1.2 range typical)
+             const lineHeight = Math.round(fontSize * lineHeightFactor);
 
-             // Use measureText for accurate width calculation
+             // --- Calculate Text Metrics ---
+             ctx.font = `${fontSize}px ${fontFamily}`;
+             ctx.textBaseline = 'top'; // Important for positioning
+
              let maxWidth = 0;
              lines.forEach(line => {
                  const metrics = ctx.measureText(line);
@@ -326,60 +319,70 @@
                  }
              });
 
-             // Calculate dimensions
-             const charHeight = RENDER_FONT_SIZE_PX * RENDER_LINE_HEIGHT_FACTOR;
-             const totalTextHeight = lines.length * charHeight;
+             // Padding inside the saved image
+             const padding = 5;
+             const canvasWidth = Math.ceil(maxWidth) + (padding * 2);
+             const canvasHeight = (lines.length * lineHeight) + (padding * 2);
 
-             const canvasWidth = Math.ceil(maxWidth) + (RENDER_PADDING_PX * 2);
-             const canvasHeight = Math.ceil(totalTextHeight) + (RENDER_PADDING_PX * 2);
+             // --- Configure Canvas for Crisp Rendering ---
+             ctx.canvas.width = canvasWidth;
+             ctx.canvas.height = canvasHeight;
 
-             // --- Render to Canvas ---
-             targetCanvas.width = canvasWidth;
-             targetCanvas.height = canvasHeight;
+             // ** THE KEY PART FOR CRISPNESS **
+             ctx.imageSmoothingEnabled = false;
+             // Set font *after* potentially resizing canvas, and disable smoothing
+             ctx.font = `${fontSize}px ${fontFamily}`;
+             ctx.textBaseline = 'top';
 
+
+             // --- Render ---
              // Background
-             ctx.fillStyle = RENDER_BACKGROUND_COLOR;
+             ctx.fillStyle = backgroundColor;
              ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
              // Text
-             ctx.fillStyle = RENDER_TEXT_COLOR;
-             ctx.font = `${RENDER_FONT_SIZE_PX}px ${RENDER_FONT_FAMILY}`; // Reset font after potential canvas resize
-             ctx.textBaseline = 'top';
-
+             ctx.fillStyle = textColor;
              lines.forEach((line, index) => {
-                 const yPos = RENDER_PADDING_PX + index * charHeight;
-                 // Draw text slightly offset if using padding
-                 ctx.fillText(line, RENDER_PADDING_PX, yPos);
+                 const yPos = padding + index * lineHeight;
+                 ctx.fillText(line, padding, yPos);
              });
 
-             // Return the data URL for immediate use
-             return targetCanvas.toDataURL('image/png');
+             // Return the data URL
+             return ctx.canvas.toDataURL('image/png');
         }
 
-        function saveAsciiAsImage() {
-            if (!renderedAsciiDataUrl) {
+        function saveAsciiAsCrispImage() {
+            if (!currentAsciiArtString) {
                  statusDiv.textContent = "No ASCII art generated to save.";
                  return;
             }
 
-            statusDiv.textContent = "Preparing download...";
+            statusDiv.textContent = "Rendering crisp image...";
+            saveButton.disabled = true; // Disable while rendering
 
-            try {
-                 const link = document.createElement('a');
-                 link.href = renderedAsciiDataUrl; // Use the stored Data URL
-                 link.download = 'ascii-art.png';
-                 document.body.appendChild(link);
-                 link.click();
-                 document.body.removeChild(link);
+            // Use setTimeout to allow the status message to update UI before potentially blocking rendering
+            setTimeout(() => {
+                try {
+                    // Render the current text to the save canvas (returns Data URL)
+                    const dataUrl = renderAsciiToSaveCanvas(currentAsciiArtString, saveCtx);
 
-                 statusDiv.textContent = "Image download initiated!";
+                    // Trigger Download
+                    const link = document.createElement('a');
+                    link.href = dataUrl;
+                    link.download = 'asciifyer-output.png'; // Updated filename
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
 
-            } catch(error) {
-                 console.error("Error saving ASCII image:", error);
-                 statusDiv.textContent = `Error saving image: ${error.message}`;
-            } finally {
-                 // Re-enable button? No, saving is quick. Keep it enabled.
-            }
+                    statusDiv.textContent = "Crisp image download initiated!";
+
+                } catch(error) {
+                    console.error("Error saving ASCII as crisp image:", error);
+                    statusDiv.textContent = `Error saving image: ${error.message}`;
+                } finally {
+                    saveButton.disabled = false; // Re-enable save button
+                }
+            }, 10); // Small delay
         }
 
     </script>
